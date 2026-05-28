@@ -12,7 +12,9 @@ RUN pip install -r requirements.txt
 
 COPY rp_handler.py /
 
-# Pre-pull model weights so cold start does not pay the HF download
-RUN python -c "from chatterbox.tts import ChatterboxTTS; ChatterboxTTS.from_pretrained(device='cuda')"
+# Pre-pull model weights so cold start does not pay the HF download.
+# Build runners on RunPod are CPU-only, so we load on CPU here — at
+# request time the handler loads to CUDA from cached weights.
+RUN python -c "from chatterbox.tts import ChatterboxTTS; ChatterboxTTS.from_pretrained(device='cpu')"
 
 CMD ["python3", "-u", "rp_handler.py"]
