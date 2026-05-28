@@ -11,4 +11,6 @@ torchvision
 einops
 yt_dlp
 ffmpeg-python
+omegaconf
+hydra-core
 runpod>=1.7.7
