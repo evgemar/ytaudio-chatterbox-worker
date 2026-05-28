@@ -26,13 +26,30 @@ import yt_dlp
 try:
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS as _ChatterboxClass
     MULTILINGUAL = True
-except ImportError:
+    print("Successfully imported ChatterboxMultilingualTTS from mtl_tts")
+except ImportError as e1:
+    print(f"Failed to import from mtl_tts: {e1}")
     try:
         from chatterbox.tts import ChatterboxMultilingualTTS as _ChatterboxClass
         MULTILINGUAL = True
-    except ImportError:
-        from chatterbox.tts import ChatterboxTTS as _ChatterboxClass
-        MULTILINGUAL = False
+        print("Successfully imported ChatterboxMultilingualTTS from tts")
+    except ImportError as e2:
+        print(f"Failed to import multilingual from tts: {e2}")
+        try:
+            from chatterbox.multilingual import ChatterboxMultilingualTTS as _ChatterboxClass
+            MULTILINGUAL = True
+            print("Successfully imported ChatterboxMultilingualTTS from multilingual")
+        except ImportError as e3:
+            print(f"Failed to import from multilingual: {e3}")
+            try:
+                from chatterbox.tts import ChatterboxTTS as _ChatterboxClass
+                MULTILINGUAL = False
+                print("Falling back to ChatterboxTTS (English-only)")
+            except ImportError as e4:
+                print(f"Failed to import ChatterboxTTS: {e4}")
+                raise ImportError("Could not import any Chatterbox TTS class")
+
+print(f"MULTILINGUAL={MULTILINGUAL}, using class: {_ChatterboxClass.__name__}")
 
 MODEL = None
 DEFAULT_REF_DURATION = 60  # seconds — cap reference clip to keep cold start tight
@@ -118,6 +135,10 @@ def audio_tensor_to_base64(audio_tensor, sample_rate) -> str:
 def handler(event):
     inp = event.get("input", {}) or {}
 
+    # Debug logging
+    print(f"Handler started - MULTILINGUAL={MULTILINGUAL}, Model class: {_ChatterboxClass.__name__}")
+    print(f"Input keys: {list(inp.keys())}")
+
     text = inp.get("text") or inp.get("prompt")
     if not text:
         return {"error": "Missing required field 'text' (or legacy 'prompt')."}
@@ -137,11 +158,35 @@ def handler(event):
         for k in ("exaggeration", "cfg_weight", "temperature"):
             if k in inp and inp[k] is not None:
                 gen_kwargs[k] = inp[k]
-        # `language` is only accepted by the multilingual class — pass
-        # through only when we actually loaded it.
-        if MULTILINGUAL and inp.get("language"):
-            gen_kwargs["language_id"] = inp["language"]
 
+        # Add language parameter only for multilingual models
+        if MULTILINGUAL and inp.get("language"):
+            # Different versions might use different parameter names
+            language = inp["language"]
+            print(f"Multilingual model detected, adding language: {language}")
+            if hasattr(MODEL, 'generate'):
+                # Try to inspect the generate method signature
+                import inspect
+                sig = inspect.signature(MODEL.generate)
+                if 'language' in sig.parameters:
+                    gen_kwargs["language"] = language
+                    print(f"Using 'language' parameter")
+                elif 'language_id' in sig.parameters:
+                    gen_kwargs["language_id"] = language
+                    print(f"Using 'language_id' parameter")
+                else:
+                    print(f"Warning: No language parameter found in generate() signature: {list(sig.parameters.keys())}")
+            else:
+                # Fallback - assume language_id for multilingual
+                gen_kwargs["language_id"] = language
+                print(f"Using fallback 'language_id' parameter")
+        else:
+            if not MULTILINGUAL:
+                print(f"Non-multilingual model - not passing language parameter")
+            elif not inp.get("language"):
+                print(f"No language specified in input")
+
+        print(f"Final generation parameters: {list(gen_kwargs.keys())}")
         audio_tensor = MODEL.generate(text, **gen_kwargs)
         audio_b64 = audio_tensor_to_base64(audio_tensor, MODEL.sr)
 
