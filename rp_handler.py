@@ -123,7 +123,9 @@ def handler(event):
 
         gen_kwargs = {"audio_prompt_path": ref_path}
         # Chatterbox accepts these as kwargs; pass through if provided.
-        for k in ("exaggeration", "cfg_weight", "temperature", "language"):
+        # NOTE: base chatterbox-tts has no `language` arg — multilingual
+        # variants accept it. Drop it silently to stay compatible.
+        for k in ("exaggeration", "cfg_weight", "temperature"):
             if k in inp and inp[k] is not None:
                 gen_kwargs[k] = inp[k]
 
