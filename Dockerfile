@@ -15,6 +15,15 @@ COPY rp_handler.py /
 # Pre-pull model weights so cold start does not pay the HF download.
 # Build runners on RunPod are CPU-only, so we load on CPU here — at
 # request time the handler loads to CUDA from cached weights.
-RUN python -c "from chatterbox.tts import ChatterboxTTS; ChatterboxTTS.from_pretrained(device='cpu')"
+# Prefetch multilingual first (preferred), fall back to base TTS.
+RUN python -c "\
+try:\n\
+    try: from chatterbox.mtl_tts import ChatterboxMultilingualTTS as C\n\
+    except ImportError: from chatterbox.tts import ChatterboxMultilingualTTS as C\n\
+    print('Prefetching multilingual'); C.from_pretrained(device='cpu')\n\
+except ImportError:\n\
+    from chatterbox.tts import ChatterboxTTS as C\n\
+    print('Prefetching base TTS'); C.from_pretrained(device='cpu')\n\
+"
 
 CMD ["python3", "-u", "rp_handler.py"]

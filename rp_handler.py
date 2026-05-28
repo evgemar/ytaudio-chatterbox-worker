@@ -20,7 +20,19 @@ import runpod
 import torch
 import torchaudio
 import yt_dlp
-from chatterbox.tts import ChatterboxTTS
+# Prefer the multilingual variant (23 languages, accepts `language` kwarg).
+# Fall back to the English-only ChatterboxTTS if the multilingual class is
+# not available in the installed package version.
+try:
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS as _ChatterboxClass
+    MULTILINGUAL = True
+except ImportError:
+    try:
+        from chatterbox.tts import ChatterboxMultilingualTTS as _ChatterboxClass
+        MULTILINGUAL = True
+    except ImportError:
+        from chatterbox.tts import ChatterboxTTS as _ChatterboxClass
+        MULTILINGUAL = False
 
 MODEL = None
 DEFAULT_REF_DURATION = 60  # seconds — cap reference clip to keep cold start tight
@@ -30,8 +42,8 @@ def initialize_model():
     global MODEL
     if MODEL is not None:
         return MODEL
-    print("Loading ChatterboxTTS to CUDA...")
-    MODEL = ChatterboxTTS.from_pretrained(device="cuda")
+    print(f"Loading {_ChatterboxClass.__name__} to CUDA (multilingual={MULTILINGUAL})...")
+    MODEL = _ChatterboxClass.from_pretrained(device="cuda")
     print("Model ready")
     return MODEL
 
@@ -122,12 +134,13 @@ def handler(event):
         ref_path = resolve_reference_audio(inp, work_dir)
 
         gen_kwargs = {"audio_prompt_path": ref_path}
-        # Chatterbox accepts these as kwargs; pass through if provided.
-        # NOTE: base chatterbox-tts has no `language` arg — multilingual
-        # variants accept it. Drop it silently to stay compatible.
         for k in ("exaggeration", "cfg_weight", "temperature"):
             if k in inp and inp[k] is not None:
                 gen_kwargs[k] = inp[k]
+        # `language` is only accepted by the multilingual class — pass
+        # through only when we actually loaded it.
+        if MULTILINGUAL and inp.get("language"):
+            gen_kwargs["language_id"] = inp["language"]
 
         audio_tensor = MODEL.generate(text, **gen_kwargs)
         audio_b64 = audio_tensor_to_base64(audio_tensor, MODEL.sr)
